@@ -1,0 +1,181 @@
+
+
+WITH order_infor as (
+   SELECT
+       SalesOrderID, sum(OrderQty) as OrderQty
+   from
+       [Sales].[SalesOrderDetail]
+   group by
+       SalesOrderID
+)
+, order_header_inf as(
+   select
+       soh.OrderDate, soh.SalesPersonID, soh.SalesOrderID, soh.CustomerID, soh.TotalDue,
+       ve.TerritoryID,
+       oif.OrderQty
+   from
+       [Sales].[SalesOrderHeader] soh
+   LEFT join
+      [Sales].[SalesPerson] ve
+       on
+           soh.SalesPersonID = ve.BusinessEntityID
+   LEFT join
+       order_infor oif
+   on
+       soh.SalesOrderID = oif.SalesOrderID
+   WHERE
+       SalesPersonID is not null
+)
+, fn_table as(
+   SELECT
+       OrderDate, TerritoryID, SalesPersonID, cast(count(SalesOrderID)as float(8)) OrdersNo, count(distinct CustomerID) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+   from
+       order_header_inf
+   group by
+       OrderDate, TerritoryID, SalesPersonID
+)
+, date_inf as(
+    SELECT
+       OrderDate,
+       TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue, SUM(OrdersNo) Over (PARTITION BY SalesPersonID Order by Orderdate) acmOrder,
+    AVG(OrdersNo) Over (PARTITION BY SalesPersonID Order by Orderdate) acmAVG
+   from
+       fn_table
+   group by
+       OrderDate, TerritoryID, SalesPersonID
+)
+
+
+--Create column count, average accumulated Orders by Sales, date
+
+SELECT
+    date_inf.*    
+FROM
+    date_inf
+ORDER BY
+    SalesPersonID
+
+
+--Create column count, average accumulated Orders by Sales, month
+
+With month_info as (
+SELECT
+    YEAR(OrderDate) year_ord, MONTH(OrderDate) month_ord, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+FROM
+    fn_table
+GROUP BY
+    TerritoryID, SalesPersonID, YEAR(OrderDate), MONTH(OrderDate)
+)
+SELECT
+    year_ord, month_ord, TerritoryID, SalesPersonID, OrdersNo, custsNo, OrderQty, TotalDue,
+    SUM(OrdersNo) Over (PARTITION BY SalesPersonID Order By month_ord,year_ord) acmOrder,
+    AVG(OrdersNo) Over (PARTITION BY SalesPersonID Order By year_ord, month_ord) acmOrder_avg
+FROM
+    month_info
+Order BY
+    year_ord, SalesPersonID
+    
+    
+--Create column sum, average accumulated Customers by Sales, date
+
+With Cust_inf as(
+    SELECT
+       OrderDate, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+   from
+       fn_table
+   group by
+       OrderDate, TerritoryID, SalesPersonID
+)
+SELECT
+    Cust_inf.*,
+    Sum(custsNo) Over (PARTITION BY SalesPersonID Order By Orderdate) acm_cust,
+    AVG(custsNo) Over (PARTITION BY SalesPersonID Order By Orderdate) acm_cust_avg
+From
+    Cust_inf
+    
+    
+--Create column sum, average accumulated Products by Sales, month
+
+With month_info as (
+SELECT
+    YEAR(OrderDate) year_ord, MONTH(OrderDate) month_ord, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+FROM
+    fn_table
+GROUP BY
+    TerritoryID, SalesPersonID, YEAR(OrderDate), MONTH(OrderDate)
+)
+SELECT
+    year_ord, month_ord, TerritoryID, SalesPersonID, OrdersNo, custsNo, OrderQty, TotalDue,
+    SUM(OrderQty) Over (PARTITION BY SalesPersonID Order By month_ord,year_ord ) acmOrder,
+    AVG(OrderQty) Over (PARTITION BY SalesPersonID Order By year_ord, month_ord) acmOrder_avg
+FROM
+    month_info
+Order BY
+    year_ord, SalesPersonID
+    
+--5. Create column sum, average accumulated Revenue by Sales, date
+WITH date_inf as(
+    SELECT
+       OrderDate, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+   from
+       fn_table
+   group by
+       OrderDate, TerritoryID, SalesPersonID
+)
+SELECT
+    date_inf.*,
+    SUM(TotalDue) over (PARTITION BY SalesPersonID Order By Orderdate) acmRev,
+    AVG(TotalDue) over (PARTITION BY SalesPersonID Order By Orderdate) acmRev_avg
+FROM
+    date_inf
+--6. Create column count, average accumulated Revenue by Sales, month
+With month_info as(
+SELECT
+    YEAR(OrderDate) year_ord, MONTH(OrderDate) month_ord, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+FROM
+    fn_table
+GROUP BY
+    TerritoryID, SalesPersonID, YEAR(OrderDate), MONTH(OrderDate)
+)
+SELECT
+    year_ord, month_ord, TerritoryID, SalesPersonID, OrdersNo, custsNo, OrderQty, TotalDue,
+    SUM(TotalDue) Over (PARTITION BY SalesPersonID Order By year_ord, month_ord) acmOrder,
+    AVG(TotalDue) Over (PARTITION BY SalesPersonID Order By year_ord, month_ord) acmOrder_avg
+FROM
+    month_info
+Order BY
+    year_ord, SalesPersonID
+    
+    
+--Create column compare revenue by Sales , month(quantity)
+
+With month_info as (
+SELECT
+    YEAR(OrderDate) year_ord, MONTH(OrderDate) month_ord, TerritoryID, SalesPersonID, sum(OrdersNo) OrdersNo, sum(custsNo) custsNo, sum(OrderQty) OrderQty, sum(TotalDue) TotalDue
+FROM
+    fn_table
+GROUP BY
+    TerritoryID, SalesPersonID, YEAR(OrderDate), MONTH(OrderDate)
+)
+, lag_info as(
+SELECT
+    year_ord, month_ord, TerritoryID, SalesPersonID, OrdersNo, custsNo, OrderQty, TotalDue,
+    lag(TotalDue) Over (PARTITION BY SalesPersonID Order By year_ord, month_ord) lag_Rev--, lag_Rev - TotalDue as spread
+FROM
+    month_info
+)
+SELECT
+    lag_info.*, TotalDue - lag_Rev as spread
+From
+    lag_info
+Order BY
+    SalesPersonID
+    
+    
+--Create column compare revenue by Sales , month(Percent)*/
+SELECT
+    lag_info.*, (TotalDue - lag_Rev)/lag_Rev *100 as spread
+From
+    lag_info
+Order BY
+    SalesPersonID
